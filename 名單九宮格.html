@@ -1,0 +1,321 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import { Maximize2, Home, Printer, Trash2, ChevronRight } from 'lucide-react';
+
+// 預設的初始資料
+const DEFAULT_DATA = {
+  'root': { name: '您', note: '' },
+  'root-0': { name: '朋友', note: '' },
+  'root-1': { name: '同事', note: '' },
+  'root-2': { name: '同學', note: '' },
+  'root-3': { name: '親戚', note: '' },
+  'root-5': { name: '社團', note: '' },
+  'root-6': { name: '商家', note: '' },
+  'root-7': { name: '鄰居', note: '' },
+  'root-8': { name: '其他', note: '' },
+};
+
+export default function App() {
+  const [data, setData] = useState(DEFAULT_DATA);
+  const [appTitle, setAppTitle] = useState('名單九宮格');
+  const [currentPath, setCurrentPath] = useState('root');
+  const [isLoaded, setIsLoaded] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+
+  // 初始化：從 localStorage 讀取資料
+  useEffect(() => {
+    const savedData = localStorage.getItem('mandalart-data');
+    const savedTitle = localStorage.getItem('mandalart-title');
+    if (savedData) {
+      try {
+        setData(JSON.parse(savedData));
+      } catch (e) {
+        console.error("載入存檔失敗", e);
+      }
+    }
+    if (savedTitle) {
+      setAppTitle(savedTitle);
+    }
+    setIsLoaded(true);
+  }, []);
+
+  // 自動存檔：當 data 或 title 改變時儲存到 localStorage
+  useEffect(() => {
+    if (isLoaded) {
+      localStorage.setItem('mandalart-data', JSON.stringify(data));
+      localStorage.setItem('mandalart-title', appTitle);
+    }
+  }, [data, appTitle, isLoaded]);
+
+  // 更新儲存格資料
+  const handleUpdate = useCallback((id, field, value) => {
+    setData(prev => ({
+      ...prev,
+      [id]: {
+        ...(prev[id] || { name: '', note: '' }),
+        [field]: value
+      }
+    }));
+  }, []);
+
+  // 重置資料
+  const handleReset = () => {
+    if (window.confirm('確定要清除所有資料並恢復預設值嗎？此動作無法復原。')) {
+      setData(DEFAULT_DATA);
+      setAppTitle('名單九宮格');
+      setCurrentPath('root');
+    }
+  };
+
+  // 匯出 PDF (使用 html2pdf.js 直接下載 PDF 檔案)
+  const handleExportPDF = async () => {
+    setIsExporting(true);
+    
+    try {
+      // 動態載入 html2pdf.js
+      if (!window.html2pdf) {
+        await new Promise((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
+          script.onload = resolve;
+          script.onerror = reject;
+          document.body.appendChild(script);
+        });
+      }
+
+      // 等待 React 重新渲染 (將輸入框轉換為純文字以利擷取)
+      await new Promise(resolve => setTimeout(resolve, 150));
+
+      const element = document.getElementById('pdf-export-area');
+      const opt = {
+        margin:       8,
+        filename:     `${appTitle}.pdf`,
+        image:        { type: 'jpeg', quality: 0.98 },
+        html2canvas:  { scale: 2, useCORS: true, logging: false },
+        jsPDF:        { unit: 'mm', format: 'a4', orientation: 'landscape' }
+      };
+
+      await window.html2pdf().set(opt).from(element).save();
+    } catch (error) {
+      console.error('PDF export failed:', error);
+      alert('匯出 PDF 失敗，請檢查網路連線或稍後再試。');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  // 計算目前路徑的麵包屑導覽
+  const breadcrumbs = currentPath.split('-').reduce((acc, part, index) => {
+    const id = index === 0 ? 'root' : `${acc[index - 1].id}-${part}`;
+    acc.push({
+      id,
+      name: data[id]?.name || '未命名'
+    });
+    return acc;
+  }, []);
+
+  if (!isLoaded) return null;
+
+  return (
+    <div className="min-h-screen bg-gray-50 text-gray-800 font-sans flex flex-col items-center py-6 px-4">
+      {/* 頂部控制列 */}
+      <div className="w-full max-w-6xl mb-4 flex justify-end gap-3 no-print">
+        <button 
+          onClick={handleExportPDF}
+          disabled={isExporting}
+          className={`flex items-center gap-2 px-4 py-2 text-white rounded-lg shadow transition-colors ${isExporting ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}
+        >
+          <Printer size={18} />
+          {isExporting ? '處理中...' : '匯出 PDF'}
+        </button>
+        <button 
+          onClick={handleReset}
+          disabled={isExporting}
+          className="flex items-center gap-2 px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors disabled:opacity-50"
+        >
+          <Trash2 size={18} />
+          清除重置
+        </button>
+      </div>
+
+      {/* 需要匯出為 PDF 的區域 */}
+      <div id="pdf-export-area" className="w-full max-w-6xl bg-white p-6 shadow-sm rounded-xl">
+        
+        {/* 標題與麵包屑區域 */}
+        <div className="mb-6">
+          {isExporting ? (
+            <h1 className="text-3xl font-bold text-gray-800 tracking-wider mb-2">{appTitle}</h1>
+          ) : (
+            <div className="mb-2">
+              <input
+                type="text"
+                value={appTitle}
+                onChange={(e) => setAppTitle(e.target.value)}
+                className="text-3xl font-bold text-gray-800 tracking-wider bg-transparent border-b border-transparent hover:border-gray-300 focus:border-blue-500 focus:outline-none transition-colors w-full max-w-md pb-1"
+                placeholder="輸入標題..."
+              />
+              <p className="text-sm text-gray-500 mt-1">填寫姓名與備註，點擊右上角箭頭可向外無限擴張</p>
+            </div>
+          )}
+
+          {/* 麵包屑導覽列 */}
+          <div className="flex items-center gap-2 text-sm text-gray-600 overflow-x-auto pb-2 mt-4">
+            <Home size={16} className="text-gray-400" />
+            {breadcrumbs.map((crumb, index) => (
+              <React.Fragment key={crumb.id}>
+                <button 
+                  onClick={() => !isExporting && setCurrentPath(crumb.id)}
+                  disabled={isExporting}
+                  className={`${!isExporting && 'hover:text-blue-600 hover:underline'} ${index === breadcrumbs.length - 1 ? 'font-bold text-blue-700' : ''}`}
+                >
+                  {crumb.name || '空白格'}
+                </button>
+                {index < breadcrumbs.length - 1 && <ChevronRight size={14} className="text-gray-400" />}
+              </React.Fragment>
+            ))}
+          </div>
+        </div>
+
+        {/* 九宮格主體 */}
+        <div className="overflow-x-auto pb-4">
+          <div className="min-w-[800px] mx-auto bg-white p-2 border border-gray-100 rounded-xl">
+            <MandalartBoard 
+              currentPath={currentPath} 
+              data={data} 
+              onUpdate={handleUpdate} 
+              onZoom={setCurrentPath}
+              isExporting={isExporting}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// 九宮格面板 (包含 9 個區塊)
+function MandalartBoard({ currentPath, data, onUpdate, onZoom, isExporting }) {
+  const blocks = [0, 1, 2, 3, 4, 5, 6, 7, 8];
+
+  return (
+    <div className="grid grid-cols-3 gap-3 bg-gray-300 p-2 rounded-lg">
+      {blocks.map(blockIndex => (
+        <Block 
+          key={blockIndex} 
+          blockIndex={blockIndex} 
+          currentPath={currentPath} 
+          data={data} 
+          onUpdate={onUpdate} 
+          onZoom={onZoom}
+          isExporting={isExporting}
+        />
+      ))}
+    </div>
+  );
+}
+
+// 單一區塊 (包含 9 個儲存格)
+function Block({ blockIndex, currentPath, data, onUpdate, onZoom, isExporting }) {
+  const cells = [0, 1, 2, 3, 4, 5, 6, 7, 8];
+  const isCenterBlock = blockIndex === 4;
+
+  // 計算該格子的全局 ID
+  const getCellId = (cellIndex) => {
+    if (isCenterBlock) {
+      return cellIndex === 4 ? currentPath : `${currentPath}-${cellIndex}`;
+    } else {
+      return cellIndex === 4 ? `${currentPath}-${blockIndex}` : `${currentPath}-${blockIndex}-${cellIndex}`;
+    }
+  };
+
+  return (
+    <div className={`relative grid grid-cols-3 gap-[1px] bg-gray-400 border-2 ${isCenterBlock ? 'border-blue-500 z-10 shadow-lg shadow-blue-500/20' : 'border-transparent'}`}>
+      
+      {/* 繪製中心區塊指向外圍的箭頭 (僅顯示在中心區塊外側) */}
+      {isCenterBlock && !isExporting && (
+        <>
+          <div className="absolute -top-3 -left-3 text-gray-500 font-bold text-[10px] bg-white rounded-full w-4 h-4 flex items-center justify-center shadow no-print">↖</div>
+          <div className="absolute -top-3 left-1/2 -translate-x-1/2 text-gray-500 font-bold text-[10px] bg-white rounded-full w-4 h-4 flex items-center justify-center shadow no-print">↑</div>
+          <div className="absolute -top-3 -right-3 text-gray-500 font-bold text-[10px] bg-white rounded-full w-4 h-4 flex items-center justify-center shadow no-print">↗</div>
+          <div className="absolute top-1/2 -left-3 -translate-y-1/2 text-gray-500 font-bold text-[10px] bg-white rounded-full w-4 h-4 flex items-center justify-center shadow no-print">←</div>
+          <div className="absolute top-1/2 -right-3 -translate-y-1/2 text-gray-500 font-bold text-[10px] bg-white rounded-full w-4 h-4 flex items-center justify-center shadow no-print">→</div>
+          <div className="absolute -bottom-3 -left-3 text-gray-500 font-bold text-[10px] bg-white rounded-full w-4 h-4 flex items-center justify-center shadow no-print">↙</div>
+          <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 text-gray-500 font-bold text-[10px] bg-white rounded-full w-4 h-4 flex items-center justify-center shadow no-print">↓</div>
+          <div className="absolute -bottom-3 -right-3 text-gray-500 font-bold text-[10px] bg-white rounded-full w-4 h-4 flex items-center justify-center shadow no-print">↘</div>
+        </>
+      )}
+
+      {cells.map(cellIndex => {
+        const id = getCellId(cellIndex);
+        const cellData = data[id] || { name: '', note: '' };
+        
+        // 判斷格子類型以給予不同樣式
+        const isMainCenter = isCenterBlock && cellIndex === 4; // 最中心的「您」
+        const isCategoryCenter = !isCenterBlock && cellIndex === 4; // 各分類的中心
+
+        let bgClass = "bg-white hover:bg-gray-50";
+        if (isMainCenter) bgClass = "bg-blue-50 hover:bg-blue-100";
+        else if (isCategoryCenter) bgClass = "bg-amber-50 hover:bg-amber-100";
+
+        return (
+          <Cell 
+            key={cellIndex} 
+            id={id} 
+            data={cellData} 
+            className={bgClass}
+            onUpdate={onUpdate}
+            onZoom={() => onZoom(id)}
+            showZoom={!isMainCenter}
+            isExporting={isExporting}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+// 單一儲存格
+function Cell({ id, data, className, onUpdate, onZoom, showZoom, isExporting }) {
+  return (
+    <div className={`group relative h-20 sm:h-24 md:h-28 flex flex-col items-center justify-center transition-colors ${className}`}>
+      
+      {/* 右上角的展開圖示 (僅在 hover 時且非匯出時顯示) */}
+      {!isExporting && showZoom && (
+        <button 
+          onClick={(e) => { e.stopPropagation(); onZoom(); }}
+          className="absolute top-1 right-1 p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded opacity-0 group-hover:opacity-100 transition-all z-10"
+          title="以此為中心向外擴張"
+        >
+          <Maximize2 size={14} />
+        </button>
+      )}
+
+      {/* 判斷是否正在匯出，匯出時改用純文字 div 以確保 PDF 能正確擷取 */}
+      {isExporting ? (
+        <>
+          <div className="w-full text-center font-bold text-base md:text-lg px-1 py-0.5 break-words whitespace-pre-wrap">{data.name}</div>
+          <div className="w-full text-center text-xs md:text-sm text-gray-600 px-1 mt-1 break-words whitespace-pre-wrap">{data.note}</div>
+        </>
+      ) : (
+        <>
+          {/* 姓名/主標題輸入框 */}
+          <input
+            type="text"
+            value={data.name}
+            onChange={(e) => onUpdate(id, 'name', e.target.value)}
+            placeholder="姓名/標題"
+            className="w-full text-center font-bold text-base md:text-lg bg-transparent border-none outline-none focus:ring-1 focus:ring-blue-400 px-1 py-0.5 placeholder:text-gray-300 placeholder:font-normal"
+          />
+          
+          {/* 備註輸入框 */}
+          <textarea
+            value={data.note}
+            onChange={(e) => onUpdate(id, 'note', e.target.value)}
+            placeholder="備註..."
+            rows={2}
+            className="w-full text-center text-xs md:text-sm text-gray-600 bg-transparent border-none outline-none resize-none overflow-hidden focus:ring-1 focus:ring-blue-400 px-1 placeholder:text-gray-300 mt-1"
+          />
+        </>
+      )}
+    </div>
+  );
+}
